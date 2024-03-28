@@ -5,12 +5,15 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"net"
 	"os"
 
 	// "github.com/stevommm/p2pdav/transport"
 	gologme "github.com/gologme/log"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
+
+	"github.com/yggdrasil-network/yggstack/src/netstack"
 )
 
 import ()
@@ -22,6 +25,7 @@ type node struct {
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	flag.Parse()
 
 	var err error
@@ -41,14 +45,18 @@ func main() {
 	n.log.Println("My public key is", n.core.PublicKey())
 	n.log.Println("My address is", n.core.Address())
 
-	listenaddr, _ := url.Parse("tcp://0.0.0.0:80")
-	listener, err := n.core.Listen(listenaddr, "")
+	s, err := netstack.CreateYggdrasilNetstack(n.core)
+	if err != nil {
+		panic(err)
+	}
+	listener, err := s.ListenTCP(&net.TCPAddr{Port: 80})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	http.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Hi!"))
+		log.Printf("Got request from %s", r.RemoteAddr)
 	})
 	server := &http.Server{}
 	server.Serve(listener)

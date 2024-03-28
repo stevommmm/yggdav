@@ -3,17 +3,16 @@ package main
 import (
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
-	"net"
 	"os"
 
-	// "github.com/stevommm/p2pdav/transport"
 	gologme "github.com/gologme/log"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
 	"github.com/yggdrasil-network/yggdrasil-go/src/core"
-
 	"github.com/yggdrasil-network/yggstack/src/netstack"
+	"golang.org/x/net/webdav"
 )
 
 import ()
@@ -42,7 +41,6 @@ func main() {
 		n.core.AddPeer(peer, "")
 	}
 
-	n.log.Println("My public key is", n.core.PublicKey())
 	n.log.Println("My address is", n.core.Address())
 
 	s, err := netstack.CreateYggdrasilNetstack(n.core)
@@ -54,10 +52,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hi!"))
-		log.Printf("Got request from %s", r.RemoteAddr)
-	})
+	dav := &webdav.Handler{
+		FileSystem: webdav.Dir("."),
+		LockSystem: webdav.NewMemLS(),
+		Logger: func(r *http.Request, err error) {
+			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL)
+			if err != nil {
+				log.Printf(" error:%s", err)
+			}
+			log.Println("")
+		},
+	}
+
+	http.HandleFunc("/", dav.ServeHTTP)
 	server := &http.Server{}
-	server.Serve(listener)
+	log.Fatal(server.Serve(listener))
 }

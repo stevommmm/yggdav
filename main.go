@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 
 	gologme "github.com/gologme/log"
 	"github.com/yggdrasil-network/yggdrasil-go/src/config"
@@ -15,7 +16,10 @@ import (
 	"golang.org/x/net/webdav"
 )
 
-import ()
+var (
+	dataDirectory string = "."
+	localListener string = "127.0.0.1:8080"
+)
 
 type node struct {
 	core   *core.Core
@@ -25,9 +29,12 @@ type node struct {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	flag.StringVar(&dataDirectory, "data", ".", "Directory contents to server via WebDAV")
+	flag.StringVar(&localListener, "listen", localListener, "Local network binding address")
 	flag.Parse()
 
 	var err error
+	var wg sync.WaitGroup
 
 	n := node{}
 	n.log = gologme.New(os.Stdout, "", gologme.LstdFlags)
@@ -41,19 +48,24 @@ func main() {
 		n.core.AddPeer(peer, "")
 	}
 
-	n.log.Println("My address is", n.core.Address())
+	listener, err := net.Listen("tcp", localListener)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	n.log.Printf("My yggdrasil address is dav://[%s]/\n", n.core.Address())
+	n.log.Printf("My local address is dav://%s/\n", listener.Addr())
 	s, err := netstack.CreateYggdrasilNetstack(n.core)
 	if err != nil {
 		panic(err)
 	}
-	listener, err := s.ListenTCP(&net.TCPAddr{Port: 80})
+	ygglistener, err := s.ListenTCP(&net.TCPAddr{Port: 80})
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	dav := &webdav.Handler{
-		FileSystem: webdav.Dir("."),
+		FileSystem: webdav.Dir(dataDirectory),
 		LockSystem: webdav.NewMemLS(),
 		Logger: func(r *http.Request, err error) {
 			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL)
@@ -66,5 +78,16 @@ func main() {
 
 	http.HandleFunc("/", dav.ServeHTTP)
 	server := &http.Server{}
-	log.Fatal(server.Serve(listener))
+
+	wg.Add(2)
+	go func() {
+		log.Fatal(server.Serve(ygglistener))
+		wg.Done()
+	}()
+	go func() {
+		log.Fatal(server.Serve(listener))
+		wg.Done()
+	}()
+
+	wg.Wait()
 }
